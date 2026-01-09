@@ -1,0 +1,5 @@
+{
+  "name": "Copy of China District Matcher",
+  "description": "An AI-powered tool to determine if a real shop address and a recommended address belong to the same business district (商圈) in China with high precision.",
+  "requestFramePermissions": []
+}
