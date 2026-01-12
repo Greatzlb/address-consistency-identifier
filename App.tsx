@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { BatchItem, AnalysisStatus, AppMode, AddressAnalysisResult, DishAnalysisResult } from './types';
 import { analyzeAddressConsistency, analyzeDishConsistency } from './services/geminiService';
 import FileUpload from './components/FileUpload';
 import BatchResults from './components/BatchResults';
-import { Map, Zap, Play, RotateCcw, Download, PauseCircle, Save, UtensilsCrossed } from 'lucide-react';
+import { Map, Play, RotateCcw, Download, PauseCircle, Save, UtensilsCrossed } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const App: React.FC = () => {
@@ -33,7 +33,6 @@ const App: React.FC = () => {
     stopProcessingRef.current = false;
     
     // Identify all indices that need processing at the start of the batch.
-    // This prevents the "stale closure" bug where the loop keeps finding the first item.
     const indicesToProcess = items
         .map((item, index) => ({ status: item.status, index }))
         .filter(item => item.status === AnalysisStatus.PENDING)
@@ -49,7 +48,6 @@ const App: React.FC = () => {
             return newItems;
         });
 
-        // Use the data from the current scope's 'items' (which contains the static data like names/addresses)
         const item = items[index];
 
         try {
@@ -175,7 +173,7 @@ const App: React.FC = () => {
 
           <p className="text-slate-400 max-w-2xl text-lg">
             {mode === 'ADDRESS' 
-                ? '批量上传 Excel 校验店铺地址与推荐商圈是否一致。' 
+                ? '支持批量上传 Excel，AI 智能校验店铺地址与推荐商圈是否一致。' 
                 : '批量上传 Excel 校验实际上新菜品是否采用了推荐菜品的灵感。'}
           </p>
         </div>
@@ -183,14 +181,16 @@ const App: React.FC = () => {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 -mt-24">
         
-        {/* State 1: Upload */}
+        {/* Input Area */}
         {items.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-xl p-8 animate-fade-in-up">
-            <FileUpload onDataLoaded={setItems} mode={mode} />
+          <div className="animate-fade-in-up">
+               <div className="bg-white rounded-2xl shadow-xl p-8">
+                  <FileUpload onDataLoaded={setItems} mode={mode} />
+               </div>
           </div>
         )}
 
-        {/* State 2: List & Actions */}
+        {/* Results List & Actions */}
         {items.length > 0 && (
           <div className="space-y-6 animate-fade-in-up">
             {/* Control Bar */}
@@ -259,7 +259,7 @@ const App: React.FC = () => {
                    <button
                      onClick={handleReset}
                      className="px-3 py-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                     title="重置"
+                     title="重置/返回"
                    >
                        <RotateCcw className="w-5 h-5" />
                    </button>
