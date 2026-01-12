@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AddressAnalysisResult } from "../types";
+import { AddressAnalysisResult, DishAnalysisResult } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -8,7 +8,6 @@ export const analyzeAddressConsistency = async (
   recommendedAddress: string
 ): Promise<AddressAnalysisResult> => {
   try {
-    // Switched to Flash for higher throughput and lower latency
     const model = "gemini-3-flash-preview"; 
 
     const prompt = `
@@ -30,7 +29,6 @@ export const analyzeAddressConsistency = async (
       model: model,
       contents: prompt,
       config: {
-        // Disabled thinkingConfig for faster response and lower token usage (better for rate limits)
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -71,7 +69,74 @@ export const analyzeAddressConsistency = async (
       throw new Error("No response text received from Gemini.");
     }
   } catch (error) {
-    console.error("Gemini Analysis Error:", error);
+    console.error("Gemini Analysis Error (Address):", error);
+    throw error;
+  }
+};
+
+export const analyzeDishConsistency = async (
+  spuName: string,
+  recommendDishName: string
+): Promise<DishAnalysisResult> => {
+  try {
+    // Using Flash for high speed and efficiency
+    const model = "gemini-3-flash-preview";
+
+    const prompt = `
+      You are an expert culinary data analyst and menu consultant.
+      
+      Task: Determine if the "Actual Dish Name" (SPU Name) is likely inspired by, derived from, or matches the intent of the "Recommended Dish Name".
+      
+      Input:
+      - Actual Dish Name (SPU Name): "${spuName}"
+      - Recommended Dish Name (Source): "${recommendDishName}"
+      
+      Instructions:
+      1. Analyze semantic similarity, key ingredients, and cooking method.
+      2. "Match" (isMatch: true) includes:
+         - Exact matches.
+         - Slight variations (e.g., "Spicy Chicken" vs "Sichuan Spicy Chicken").
+         - The actual dish clearly following the recommendation's core idea.
+      3. "Mismatch" (isMatch: false) includes:
+         - Completely different food items.
+         - Different main ingredients (e.g., Beef vs Chicken) unless it's a generic style recommendation.
+      4. Provide a confidence score (0-100).
+      5. Provide a concise reasoning in Chinese explaining the relationship or lack thereof.
+    `;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isMatch: {
+              type: Type.BOOLEAN,
+              description: "True if the actual dish is inspired by or matches the recommended dish.",
+            },
+            confidenceScore: {
+              type: Type.INTEGER,
+              description: "Confidence level from 0 to 100.",
+            },
+            reasoning: {
+              type: Type.STRING,
+              description: "Explanation of the relationship between the two dish names.",
+            },
+          },
+          required: ["isMatch", "confidenceScore", "reasoning"],
+        },
+      },
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text) as DishAnalysisResult;
+    } else {
+      throw new Error("No response text received from Gemini.");
+    }
+  } catch (error) {
+    console.error("Gemini Analysis Error (Dish):", error);
     throw error;
   }
 };

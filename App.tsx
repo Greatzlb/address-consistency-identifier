@@ -1,22 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BatchItem, AnalysisStatus } from './types';
-import { analyzeAddressConsistency } from './services/geminiService';
+import { BatchItem, AnalysisStatus, AppMode, AddressAnalysisResult, DishAnalysisResult } from './types';
+import { analyzeAddressConsistency, analyzeDishConsistency } from './services/geminiService';
 import FileUpload from './components/FileUpload';
 import BatchResults from './components/BatchResults';
-import { Map, Zap, Play, RotateCcw, Download, Hourglass, PauseCircle, Save } from 'lucide-react';
+import { Map, Zap, Play, RotateCcw, Download, PauseCircle, Save, UtensilsCrossed } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
-// Extremely conservative settings to bypass free tier rate limits
-const NORMAL_DELAY_MS = 10000; // 10 seconds between requests (6 requests per minute)
-const ERROR_COOLDOWN_MS = 60000; // 60 seconds cooldown if an error occurs
-
 const App: React.FC = () => {
+  const [mode, setMode] = useState<AppMode>('ADDRESS');
   const [items, setItems] = useState<BatchItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
-  const [countdown, setCountdown] = useState(0);
   
-  // Ref to control the processing loop
   const stopProcessingRef = useRef(false);
 
   // Computed stats
@@ -24,20 +18,12 @@ const App: React.FC = () => {
   const completed = items.filter(i => i.status === AnalysisStatus.SUCCESS || i.status === AnalysisStatus.ERROR).length;
   const progress = total === 0 ? 0 : Math.round((completed / total) * 100);
 
-  // Helper for delay with countdown
-  const waitWithCountdown = async (ms: number, message: string) => {
-    setStatusMessage(message);
-    let remaining = ms / 1000;
-    setCountdown(Math.ceil(remaining));
-
-    while (remaining > 0) {
-      if (stopProcessingRef.current) break;
-      await new Promise(r => setTimeout(r, 1000));
-      remaining -= 1;
-      setCountdown(Math.ceil(remaining));
-    }
-    setCountdown(0);
-    setStatusMessage("");
+  // Reset items when mode changes
+  const switchMode = (newMode: AppMode) => {
+      if (newMode === mode) return;
+      handleStop();
+      setMode(newMode);
+      setItems([]);
   };
 
   const processQueue = async () => {
@@ -46,75 +32,59 @@ const App: React.FC = () => {
     setIsProcessing(true);
     stopProcessingRef.current = false;
     
-    // Find all pending items
-    // We re-evaluate this index constantly in the loop to handle dynamic updates
-    let pendingIndex = items.findIndex(item => item.status === AnalysisStatus.PENDING);
+    // Identify all indices that need processing at the start of the batch.
+    // This prevents the "stale closure" bug where the loop keeps finding the first item.
+    const indicesToProcess = items
+        .map((item, index) => ({ status: item.status, index }))
+        .filter(item => item.status === AnalysisStatus.PENDING)
+        .map(item => item.index);
 
-    while (pendingIndex !== -1 && !stopProcessingRef.current) {
-        const item = items[pendingIndex];
-        
+    for (const index of indicesToProcess) {
+        if (stopProcessingRef.current) break;
+
         // 1. Mark as Analyzing
         setItems(prev => {
             const newItems = [...prev];
-            newItems[pendingIndex] = { ...newItems[pendingIndex], status: AnalysisStatus.ANALYZING };
+            newItems[index] = { ...newItems[index], status: AnalysisStatus.ANALYZING };
             return newItems;
         });
 
-        let success = false;
-        let retryCount = 0;
+        // Use the data from the current scope's 'items' (which contains the static data like names/addresses)
+        const item = items[index];
 
-        // Retry loop for a single item
-        while (!success && !stopProcessingRef.current) {
-            try {
-                const result = await analyzeAddressConsistency(item.realAddress, item.recommendedAddress);
-                
-                // Success!
-                setItems(prev => {
-                    const newItems = [...prev];
-                    newItems[pendingIndex] = { ...newItems[pendingIndex], status: AnalysisStatus.SUCCESS, result };
-                    return newItems;
-                });
-                success = true;
-
-                // Normal wait between successful requests
-                // Check if there are more items before waiting
-                const nextPending = items.findIndex((it, idx) => idx > pendingIndex && it.status === AnalysisStatus.PENDING);
-                if (nextPending !== -1 || pendingIndex < items.length - 1) {
-                    await waitWithCountdown(NORMAL_DELAY_MS, "Rate Limit Protection: Waiting...");
-                }
-
-            } catch (error) {
-                console.error(`Error processing row ${pendingIndex}, attempt ${retryCount + 1}`, error);
-                
-                // If it's likely a rate limit error (or any error), we wait longer
-                retryCount++;
-                if (retryCount > 3) {
-                    // Give up after 3 long retries
-                     setItems(prev => {
-                        const newItems = [...prev];
-                        newItems[pendingIndex] = { ...newItems[pendingIndex], status: AnalysisStatus.ERROR, error: "Max Retries Exceeded" };
-                        return newItems;
-                    });
-                    break; // Exit retry loop, move to next item
-                } else {
-                    // Wait for cooldown
-                    await waitWithCountdown(ERROR_COOLDOWN_MS, `API Quota Hit. Cooling down (Attempt ${retryCount}/3)...`);
-                }
+        try {
+            let result;
+            if (mode === 'ADDRESS') {
+                result = await analyzeAddressConsistency(item.realAddress || '', item.recommendedAddress || '');
+            } else {
+                result = await analyzeDishConsistency(item.spuName || '', item.recommendDishName || '');
             }
-        }
+            
+            // Success!
+            setItems(prev => {
+                const newItems = [...prev];
+                newItems[index] = { ...newItems[index], status: AnalysisStatus.SUCCESS, result };
+                return newItems;
+            });
 
-        // Re-calculate pending index for the next iteration
-        pendingIndex = items.findIndex(item => item.status === AnalysisStatus.PENDING);
+        } catch (error) {
+            console.error(`Error processing row ${index}`, error);
+            
+            // Mark as Error but continue to next immediately
+            setItems(prev => {
+                const newItems = [...prev];
+                newItems[index] = { ...newItems[index], status: AnalysisStatus.ERROR, error: "API Error" };
+                return newItems;
+            });
+        }
     }
 
     setIsProcessing(false);
-    setStatusMessage("");
   };
 
   const handleStop = () => {
       stopProcessingRef.current = true;
       setIsProcessing(false);
-      setStatusMessage("Stopping...");
   };
 
   const handleReset = () => {
@@ -123,24 +93,45 @@ const App: React.FC = () => {
   };
 
   const handleExport = () => {
-      const exportData = items.map(item => ({
-          '商家ID (wm_poi_id)': item.poiId,
-          '商家名称 (wm_poi_name)': item.merchantName,
-          '实际地址 (poi_address)': item.realAddress,
-          '推荐地址 (address_region_name)': item.recommendedAddress,
-          '是否一致 (Match)': item.result ? (item.result.isMatch ? '是' : '否') : 'Pending',
-          '置信度 (Confidence)': item.result ? `${item.result.confidenceScore}%` : '0%',
-          '实际地址识别商圈': item.result?.realAddressDistrict || '',
-          '推荐地址识别商圈': item.result?.recommendedAddressDistrict || '',
-          '分析原因 (Reasoning)': item.result?.reasoning || ''
-      }));
+      let exportData: any[] = [];
+
+      if (mode === 'ADDRESS') {
+         exportData = items.map(item => {
+             const r = item.result as AddressAnalysisResult | undefined;
+             return {
+                '商家ID': item.poiId,
+                '商家名称': item.merchantName,
+                '实际地址': item.realAddress,
+                '推荐地址': item.recommendedAddress,
+                '是否一致': r ? (r.isMatch ? '是' : '否') : 'Pending',
+                '置信度': r ? `${r.confidenceScore}%` : '0%',
+                '实际地址识别商圈': r?.realAddressDistrict || '',
+                '推荐地址识别商圈': r?.recommendedAddressDistrict || '',
+                '分析原因': r?.reasoning || ''
+             };
+         });
+      } else {
+         exportData = items.map(item => {
+             const r = item.result as DishAnalysisResult | undefined;
+             return {
+                '商家ID': item.poiId,
+                '商家名称': item.merchantName,
+                'SPU ID': item.spuId,
+                '上新菜品': item.spuName,
+                '推荐/灵感来源': item.recommendDishName,
+                '是否一致/灵感来源': r ? (r.isMatch ? '是' : '否') : 'Pending',
+                '置信度': r ? `${r.confidenceScore}%` : '0%',
+                '分析原因': r?.reasoning || ''
+             };
+         });
+      }
 
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Analysis Results");
       const fileName = progress === 100 
-        ? "Address_Consistency_Results_Full.xlsx" 
-        : `Address_Consistency_Partial_${completed}_of_${total}.xlsx`;
+        ? `${mode === 'ADDRESS' ? '地址' : '菜品'}_一致性分析结果_完整.xlsx` 
+        : `${mode === 'ADDRESS' ? '地址' : '菜品'}_一致性分析结果_部分_${completed}_共_${total}.xlsx`;
       XLSX.writeFile(wb, fileName);
   };
 
@@ -149,21 +140,39 @@ const App: React.FC = () => {
       {/* Header */}
       <div className="bg-slate-900 pb-32">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-10">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="h-10 w-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/50">
-              <Map className="text-white w-6 h-6" />
-            </div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">
-              Address Consistency <span className="text-blue-400">Batch Identifier</span>
-            </h1>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
+              <div className="flex items-center gap-3">
+                <div className={`h-10 w-10 rounded-lg flex items-center justify-center shadow-lg transition-colors duration-500 ${mode === 'ADDRESS' ? 'bg-blue-600 shadow-blue-900/50' : 'bg-orange-500 shadow-orange-900/50'}`}>
+                  {mode === 'ADDRESS' ? <Map className="text-white w-6 h-6" /> : <UtensilsCrossed className="text-white w-6 h-6" />}
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-white tracking-tight">
+                    {mode === 'ADDRESS' ? '中国地址一致性' : '菜品上新一致性'} <span className={mode === 'ADDRESS' ? 'text-blue-400' : 'text-orange-400'}>识别器</span>
+                    </h1>
+                </div>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="bg-slate-800/50 p-1 rounded-lg flex border border-slate-700">
+                  <button
+                    onClick={() => switchMode('ADDRESS')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'ADDRESS' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                      地址一致性
+                  </button>
+                  <button
+                    onClick={() => switchMode('DISH')}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${mode === 'DISH' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                  >
+                      菜品一致性
+                  </button>
+              </div>
           </div>
+
           <p className="text-slate-400 max-w-2xl text-lg">
-            批量上传 Excel 校验店铺地址与商圈是否一致。
-            <br/>
-            <span className="text-yellow-500 text-sm flex items-center gap-1 mt-2">
-                <Zap className="w-4 h-4" /> 
-                已开启智能防封号模式：每单正常间隔10秒，遇错自动冷却60秒重试。
-            </span>
+            {mode === 'ADDRESS' 
+                ? '批量上传 Excel 校验店铺地址与推荐商圈是否一致。' 
+                : '批量上传 Excel 校验实际上新菜品是否采用了推荐菜品的灵感。'}
           </p>
         </div>
       </div>
@@ -173,7 +182,7 @@ const App: React.FC = () => {
         {/* State 1: Upload */}
         {items.length === 0 && (
           <div className="bg-white rounded-2xl shadow-xl p-8 animate-fade-in-up">
-            <FileUpload onDataLoaded={setItems} />
+            <FileUpload onDataLoaded={setItems} mode={mode} />
           </div>
         )}
 
@@ -184,7 +193,7 @@ const App: React.FC = () => {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-col md:flex-row items-center justify-between gap-4">
                <div className="flex items-center gap-4 w-full md:w-auto">
                    <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-lg">
-                       <span className="text-slate-500 text-sm font-medium">Items:</span>
+                       <span className="text-slate-500 text-sm font-medium">项目数:</span>
                        <span className="text-slate-900 font-bold">{completed} / {total}</span>
                    </div>
                    
@@ -192,19 +201,13 @@ const App: React.FC = () => {
                        <div className="flex-grow md:w-64">
                            <div className="flex justify-between text-xs mb-1">
                                <div className="flex items-center gap-2">
-                                 <span className="text-slate-500">Progress</span>
-                                 {countdown > 0 && (
-                                   <span className="text-amber-600 font-mono text-[11px] flex items-center gap-1 bg-amber-100 px-1.5 rounded animate-pulse">
-                                     <Hourglass className="w-3 h-3" />
-                                     {statusMessage} {countdown}s
-                                   </span>
-                                 )}
+                                 <span className="text-slate-500">进度</span>
                                </div>
-                               <span className="font-bold text-blue-600">{progress}%</span>
+                               <span className={`font-bold ${mode === 'ADDRESS' ? 'text-blue-600' : 'text-orange-600'}`}>{progress}%</span>
                            </div>
                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                <div 
-                                 className={`h-full transition-all duration-500 ease-out ${countdown > 0 ? 'bg-amber-400' : 'bg-blue-500'}`}
+                                 className={`h-full transition-all duration-500 ease-out ${mode === 'ADDRESS' ? 'bg-blue-500' : 'bg-orange-500'}`}
                                  style={{ width: `${progress}%` }}
                                />
                            </div>
@@ -222,7 +225,7 @@ const App: React.FC = () => {
                          ? 'bg-green-600 hover:bg-green-700 text-white border-transparent' 
                          : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300'}
                      `}
-                     title="Export current results (complete or partial)"
+                     title="导出结果"
                    >
                        {progress === 100 ? <Download className="w-4 h-4" /> : <Save className="w-4 h-4" />}
                        {progress === 100 ? '导出全部' : '导出进度'}
@@ -233,7 +236,7 @@ const App: React.FC = () => {
                        !isProcessing ? (
                            <button
                              onClick={processQueue}
-                             className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors shadow-sm"
+                             className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-2.5 text-white rounded-lg font-medium transition-colors shadow-sm ${mode === 'ADDRESS' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-orange-600 hover:bg-orange-700'}`}
                            >
                                <Play className="w-4 h-4" />
                                {completed > 0 ? '继续分析' : '开始分析'}
@@ -252,7 +255,7 @@ const App: React.FC = () => {
                    <button
                      onClick={handleReset}
                      className="px-3 py-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                     title="Reset / Clear All"
+                     title="重置"
                    >
                        <RotateCcw className="w-5 h-5" />
                    </button>
@@ -260,7 +263,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Results Table */}
-            <BatchResults items={items} />
+            <BatchResults items={items} mode={mode} />
           </div>
         )}
 

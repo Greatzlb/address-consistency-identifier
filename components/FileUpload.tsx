@@ -1,46 +1,102 @@
 import React, { useCallback } from 'react';
 import { Upload, FileSpreadsheet } from 'lucide-react';
 import { parseExcelFile } from '../utils/excel';
-import { BatchItem } from '../types';
+import { BatchItem, AppMode } from '../types';
 
 interface FileUploadProps {
   onDataLoaded: (items: BatchItem[]) => void;
+  mode: AppMode;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded, mode }) => {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
-      const items = await parseExcelFile(file);
+      const items = await parseExcelFile(file, mode);
       onDataLoaded(items);
     } catch (error) {
       console.error("Error parsing file:", error);
-      alert("解析 Excel 文件失败，请确保格式正确 (Failed to parse file)");
+      alert("解析 Excel 文件失败，请确保格式正确");
     }
   };
 
+  const getMockData = () => {
+      if (mode === 'ADDRESS') {
+        return [
+           { id: 'row-1', poiId: '10001', merchantName: '星巴克 (Starbucks)', realAddress: '北京市朝阳区三里屯路19号院太古里南区', recommendedAddress: '北京市朝阳区工体北路8号院三里屯SOHO', status: 'PENDING' },
+           { id: 'row-2', poiId: '10002', merchantName: '海底捞 (Haidilao)', realAddress: '上海市南京东路299号宏伊国际广场', recommendedAddress: '上海市黄浦区南京东路步行街', status: 'PENDING' },
+           { id: 'row-3', poiId: '10003', merchantName: '便利蜂', realAddress: '杭州市西湖区文三路478号', recommendedAddress: '杭州市滨江区网商路599号', status: 'PENDING' }
+         ] as any;
+      } else {
+        return [
+            { id: 'row-1', poiId: '20001', merchantName: '川湘小馆', spuId: '8801', spuName: '麻辣鲜香口水鸡', recommendDishName: '口水鸡', status: 'PENDING' },
+            { id: 'row-2', poiId: '20002', merchantName: 'Healthy Bowls', spuId: '8802', spuName: '牛油果三文鱼波奇饭', recommendDishName: '轻食沙拉', status: 'PENDING' },
+            { id: 'row-3', poiId: '20003', merchantName: 'Burger King', spuId: '8803', spuName: '果木香风味火烤鸡腿堡', recommendDishName: '牛肉汉堡', status: 'PENDING' }
+        ] as any;
+      }
+  };
+
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full max-w-3xl mx-auto">
       <label 
-        className="flex flex-col items-center justify-center w-full h-64 border-2 border-slate-300 border-dashed rounded-2xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors group"
+        className="relative flex flex-col items-center justify-center w-full min-h-[400px] p-8 border-2 border-slate-300 border-dashed rounded-3xl cursor-pointer bg-slate-50 hover:bg-slate-100/80 hover:border-blue-400 transition-all duration-300 group overflow-hidden"
       >
-        <div className="flex flex-col items-center justify-center pt-5 pb-6">
-          <div className="p-4 bg-white rounded-full shadow-sm mb-4 group-hover:scale-110 transition-transform duration-300">
-            <Upload className="w-8 h-8 text-blue-500" />
+        <div className="flex flex-col items-center justify-center text-center space-y-5 z-10">
+          <div className="p-5 bg-white rounded-2xl shadow-sm mb-2 group-hover:scale-110 group-hover:shadow-md transition-transform duration-300">
+            <Upload className="w-10 h-10 text-blue-500" />
           </div>
-          <p className="mb-2 text-lg text-slate-700 font-medium">
-            点击或拖拽上传 Excel 文件
-          </p>
-          <p className="text-sm text-slate-500 mb-4">
+          
+          <div className="space-y-1">
+            <p className="text-xl text-slate-700 font-semibold">
+              点击或拖拽上传 Excel 文件
+            </p>
+            <p className="text-base text-slate-500 font-medium">
+               ({mode === 'ADDRESS' ? '地址模式' : '菜品模式'})
+            </p>
+          </div>
+
+          <p className="text-sm text-slate-400">
             支持 .xlsx, .xls, .csv
           </p>
-          <div className="flex flex-col gap-1 text-xs text-slate-400 bg-slate-200/50 p-3 rounded-lg text-left">
-            <span className="font-semibold text-slate-500">支持列名 (Columns):</span>
-            <span className="font-mono">wm_poi_id (商家ID), wm_poi_name (商家名称)</span>
-            <span className="font-mono">poi_address (实际地址)</span>
-            <span className="font-mono">address_region_name (推荐商圈)</span>
+
+          <div className="mt-4 w-full max-w-xl bg-white/60 border border-slate-200 p-5 rounded-xl text-left shadow-sm backdrop-blur-sm">
+            <div className="text-xs space-y-3 text-slate-500 leading-relaxed">
+                <div>
+                    <span className="font-bold text-slate-700 block mb-1.5">通用列:</span>
+                    <div className="flex flex-wrap gap-2">
+                      <code className="bg-slate-100 px-2 py-1 rounded border border-slate-200 text-slate-600 font-mono">wm_poi_id</code> 
+                      <span className="text-slate-400 my-auto">(商家ID)</span>
+                      <code className="bg-slate-100 px-2 py-1 rounded border border-slate-200 text-slate-600 font-mono">wm_poi_name</code>
+                      <span className="text-slate-400 my-auto">(商家名称)</span>
+                    </div>
+                </div>
+                
+                {mode === 'ADDRESS' ? (
+                    <div>
+                        <span className="font-bold text-blue-700 block mb-1.5">地址模式列:</span>
+                        <div className="flex flex-wrap gap-2">
+                           <code className="bg-blue-50 px-2 py-1 rounded border border-blue-100 text-blue-700 font-mono">poi_address</code>
+                           <span className="text-slate-400 my-auto">(实际地址)</span>
+                           <code className="bg-blue-50 px-2 py-1 rounded border border-blue-100 text-blue-700 font-mono">address_region_name</code>
+                           <span className="text-slate-400 my-auto">(推荐商圈)</span>
+                        </div>
+                    </div>
+                ) : (
+                    <div>
+                         <span className="font-bold text-orange-700 block mb-1.5">菜品模式列:</span>
+                         <div className="flex flex-wrap gap-2">
+                           <code className="bg-orange-50 px-2 py-1 rounded border border-orange-100 text-orange-700 font-mono">spu_id</code>
+                           <span className="text-slate-400 my-auto">(菜品ID)</span>
+                           <code className="bg-orange-50 px-2 py-1 rounded border border-orange-100 text-orange-700 font-mono">spu_name</code>
+                           <span className="text-slate-400 my-auto">(上新菜品)</span>
+                           <code className="bg-orange-50 px-2 py-1 rounded border border-orange-100 text-orange-700 font-mono">recommend_dish_name</code>
+                           <span className="text-slate-400 my-auto">(推荐/灵感来源)</span>
+                         </div>
+                    </div>
+                )}
+            </div>
           </div>
         </div>
         <input 
@@ -53,17 +109,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded }) => {
       
       <div className="mt-8 flex justify-center">
          <button 
-           onClick={() => {
-             // Mock data for demo/testing without file
-             onDataLoaded([
-               { id: 'row-1', poiId: '10001', merchantName: '星巴克 (Starbucks)', realAddress: '北京市朝阳区三里屯路19号院太古里南区', recommendedAddress: '北京市朝阳区工体北路8号院三里屯SOHO', status: 'PENDING' },
-               { id: 'row-2', poiId: '10002', merchantName: '海底捞 (Haidilao)', realAddress: '上海市南京东路299号宏伊国际广场', recommendedAddress: '上海市黄浦区南京东路步行街', status: 'PENDING' },
-               { id: 'row-3', poiId: '10003', merchantName: '便利蜂', realAddress: '杭州市西湖区文三路478号', recommendedAddress: '杭州市滨江区网商路599号', status: 'PENDING' }
-             ]);
-           }}
-           className="text-sm text-slate-400 hover:text-blue-600 underline"
+           onClick={() => onDataLoaded(getMockData())}
+           className="text-sm text-slate-400 hover:text-blue-600 underline underline-offset-4 transition-colors"
          >
-           没有文件？使用测试数据 (Try Demo Data)
+           没有文件？使用{mode === 'ADDRESS' ? '地址' : '菜品'}测试数据
          </button>
       </div>
     </div>
