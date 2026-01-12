@@ -57,7 +57,11 @@ const App: React.FC = () => {
             if (mode === 'ADDRESS') {
                 result = await analyzeAddressConsistency(item.realAddress || '', item.recommendedAddress || '');
             } else {
-                result = await analyzeDishConsistency(item.spuName || '', item.recommendDishName || '');
+                result = await analyzeDishConsistency(
+                    item.spuName || '', 
+                    item.recommendDishName || '',
+                    item.merchantName || ''
+                );
             }
             
             // Success!

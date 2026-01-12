@@ -22,22 +22,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded, mode }) => {
     }
   };
 
-  const getMockData = () => {
-      if (mode === 'ADDRESS') {
-        return [
-           { id: 'row-1', poiId: '10001', merchantName: '星巴克 (Starbucks)', realAddress: '北京市朝阳区三里屯路19号院太古里南区', recommendedAddress: '北京市朝阳区工体北路8号院三里屯SOHO', status: 'PENDING' },
-           { id: 'row-2', poiId: '10002', merchantName: '海底捞 (Haidilao)', realAddress: '上海市南京东路299号宏伊国际广场', recommendedAddress: '上海市黄浦区南京东路步行街', status: 'PENDING' },
-           { id: 'row-3', poiId: '10003', merchantName: '便利蜂', realAddress: '杭州市西湖区文三路478号', recommendedAddress: '杭州市滨江区网商路599号', status: 'PENDING' }
-         ] as any;
-      } else {
-        return [
-            { id: 'row-1', poiId: '20001', merchantName: '川湘小馆', spuId: '8801', spuName: '麻辣鲜香口水鸡', recommendDishName: '口水鸡', status: 'PENDING' },
-            { id: 'row-2', poiId: '20002', merchantName: 'Healthy Bowls', spuId: '8802', spuName: '牛油果三文鱼波奇饭', recommendDishName: '轻食沙拉', status: 'PENDING' },
-            { id: 'row-3', poiId: '20003', merchantName: 'Burger King', spuId: '8803', spuName: '果木香风味火烤鸡腿堡', recommendDishName: '牛肉汉堡', status: 'PENDING' }
-        ] as any;
-      }
-  };
-
   return (
     <div className="w-full max-w-3xl mx-auto">
       <label 
@@ -106,15 +90,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded, mode }) => {
           onChange={handleFileChange}
         />
       </label>
-      
-      <div className="mt-8 flex justify-center">
-         <button 
-           onClick={() => onDataLoaded(getMockData())}
-           className="text-sm text-slate-400 hover:text-blue-600 underline underline-offset-4 transition-colors"
-         >
-           没有文件？使用{mode === 'ADDRESS' ? '地址' : '菜品'}测试数据
-         </button>
-      </div>
     </div>
   );
 };
